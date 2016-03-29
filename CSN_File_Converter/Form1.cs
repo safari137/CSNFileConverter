@@ -2,24 +2,26 @@
 using System.Collections.Generic;
 using System.Windows.Forms;
 using System.IO;
+using CSN_File_Converter.Model;
+using CSN_File_Converter.Service;
 
 namespace CSN_File_Converter
 {
     public partial class Form1 : Form
     {
-        private bool ReadFile = false;
         private const string Separator = "|";
-        private bool WriteFile = false;
-        private bool fail = false;
-        private bool FtpSend = false;
+        private bool _inputFileHasBeenRead = false;
+        private bool _shouldWriteFile = false;
+        private bool _conversionFailed = false;
+        private bool _shouldFtpSend = false;
 
-        private LinkedList<inventory> inventoryList = new LinkedList<inventory>();
+        private readonly LinkedList<Inventory> _inventoryList = new LinkedList<Inventory>();
 
 
         public Form1()
         {
             InitializeComponent();
-            settings_info.ReadSettings();
+            SettingsService.ReadSettings();
 
             this.progressBar1.Minimum = 0;
             this.progressBar1.Maximum = 1;
@@ -30,34 +32,53 @@ namespace CSN_File_Converter
             this.progressBar4.Minimum = 0;
             this.progressBar4.Maximum = 3;
 
-            timer1.Interval = 2000;
+            taskManager.Interval = 2000;
         }
 
-        private string BuildLine(inventory inv)
+        private static string BuildLine(Inventory inv)
         {
-            return (settings_info.SupplierID + Separator + inv.ItemNumber + Separator + inv.QtyOnHand + Separator + inv.QtyBackOrdered + Separator + inv.QtyOnOrder + Separator + inv.NextAvailDate + Separator + inv.Discontinued + Separator + inv.Description);
+            return (SettingsService.SupplierId + Separator + inv.ItemNumber + Separator + inv.QtyOnHand + Separator + inv.QtyBackOrdered + Separator + inv.QtyOnOrder + Separator + inv.NextAvailDate + Separator + inv.Discontinued + Separator + inv.Description);
         }
 
-        private void button1_Click(object sender, EventArgs e)
+        private void convertButton_Click(object sender, EventArgs e)
         {
-            button1.Enabled = false;
-            inventoryList.Clear();
-            if (fail)
+            convertButton.Enabled = false;
+            _inventoryList.Clear();
+            if (_conversionFailed)
             {
                 ResetValues();
-                fail = false;
+                _conversionFailed = false;
             }
-            ReadFile = true;
-            timer1.Start();
-            this.timer1.Tick += new System.EventHandler(this.timer1_Tick);
+            _inputFileHasBeenRead = true;
+            taskManager.Start();
+            this.taskManager.Tick += new System.EventHandler(this.TaskManager);
             ProcessReadFile();
-            ReadFile = false;
+            _inputFileHasBeenRead = false;
         }
 
-        private bool CheckCurrent(DateTime fileTime, out int days)
+        private void TaskManager(object sender, EventArgs e)
         {
-            DateTime now = DateTime.Now;
-            int num = 0;
+            if (_shouldWriteFile)
+            {
+                _shouldWriteFile = false;
+                ProcessWriteFile();
+            }
+            else if (_shouldFtpSend)
+            {
+                _shouldFtpSend = false;
+                ProcessFtpSend();
+            }
+            else if (!_inputFileHasBeenRead)
+            {
+                taskManager.Stop();
+                convertButton.Enabled = true;
+            }
+        }
+
+        private static bool CheckCurrent(DateTime fileTime, out int days)
+        {
+            var now = DateTime.Now;
+            var num = 0;
             if (((fileTime.Year == now.Year) && (fileTime.Month == now.Month)) && (fileTime.Day == now.Day))
             {
                 days = 0;
@@ -75,32 +96,29 @@ namespace CSN_File_Converter
             base.Close();
         }
 
-        private string DataStrip(string str)
+        private string DataStrip(string data)
         {
-            string str2 = "";
-            foreach (char ch in str)
+            var result = "";
+            foreach (var character in data)
             {
-                if (IsLegal(ch))
+                if (IsLegal(character))
                 {
-                    str2 = str2 + ch.ToString();
+                    result = result + character.ToString();
                 }
             }
-            return str2;
+            return result;
         }
 
-        private bool IsLegal(char c)
+        private static bool IsLegal(char c)
         {
             switch (c)
             {
                 case '*':
                     return false;
-
                 case ',':
                     return false;
-
                 case '|':
                     return false;
-
                 case '"':
                     return false;
             }
@@ -109,10 +127,12 @@ namespace CSN_File_Converter
 
         private void ProcessFtpSend()
         {
-            Ftp.SendFile(settings_info.outputFile, "/inventory/" + settings_info.outputFile);
-            if (Ftp.success)
+            var ftp = new FtpService();
+
+            ftp.SendFile(SettingsService.OutputFile, "/inventory/" + SettingsService.OutputFile);
+            if (ftp.Success)
             {
-                fail = true;
+                _conversionFailed = true;
                 progressBar3.Increment(1);
                 progressBar4.Increment(1);
                 label5.Text = "100% Complete";
@@ -120,100 +140,107 @@ namespace CSN_File_Converter
             else
             {
                 label4.Text = "Failed!  Fix Reported Errors and Try Again!";
-                fail = true;
+                _conversionFailed = true;
             }
         }
 
         private void ProcessReadFile()
         {
-            int days = 0;
-            if (((settings_info.inputFile == null) || (settings_info.outputFile == null)) || (settings_info.SupplierID == null))
+            if (((SettingsService.InputFile == null) || (SettingsService.OutputFile == null)) ||
+                (SettingsService.SupplierId == null))
             {
                 MessageBox.Show("Please fill in the data under the settings window and then try again.");
-                fail = true;
+                _conversionFailed = true;
+                return;
             }
-            else if (!File.Exists(settings_info.inputFile))
+            if (!File.Exists(SettingsService.InputFile))
             {
-                MessageBox.Show("Cannot find the file: '" + settings_info.inputFile + "'.  Make sure the file is in the same directory as this program and try again.");
-                fail = true;
+                MessageBox.Show("Cannot find the file: '" + SettingsService.InputFile +
+                                "'.  Make sure the file is in the same directory as this program and try again.");
+                _conversionFailed = true;
+                return;
             }
-            else
+
+            var lastWriteTime = File.GetLastWriteTime(SettingsService.InputFile);
+            var days = 0;
+            if (!CheckCurrent(lastWriteTime, out days) &&
+                (MessageBox.Show(
+                    "The input file is about " + days.ToString() + " day(s) old. Would you like to use it anyways?",
+                    "Old File?", MessageBoxButtons.YesNo) == DialogResult.No))
             {
-                DateTime lastWriteTime = File.GetLastWriteTime(settings_info.inputFile);
-                if (!CheckCurrent(lastWriteTime, out days) && (MessageBox.Show("The input file is about " + days.ToString() + " day(s) old. Would you like to use it anyways?", "Old File?", MessageBoxButtons.YesNo) == DialogResult.No))
-                {
-                    fail = true;
-                }
-                else
-                {
-                    try
-                    {
-                        File.OpenRead(settings_info.inputFile);
-                    }
-                    catch (Exception exception)
-                    {
-                        MessageBox.Show(exception.Message);
-                        label4.Text = "Failed!  Fix Reported Errors and Try Again!";
-                        fail = true;
-                        return;
-                    }
-                    ReadSourceFile();
-                    progressBar1.Increment(1);
-                    progressBar4.Increment(1);
-                    label5.Text = "33% Complete";
-                    WriteFile = true;
-                }
+                _conversionFailed = true;
+                return;
             }
+
+            try
+            {
+                File.OpenRead(SettingsService.InputFile);
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show(exception.Message);
+                label4.Text = "Failed!  Fix Reported Errors and Try Again!";
+                _conversionFailed = true;
+                return;
+            }
+
+            ReadSourceFile();
+            progressBar1.Increment(1);
+            progressBar4.Increment(1);
+            label5.Text = "33% Complete";
+            _shouldWriteFile = true;
         }
+
 
         private void ProcessWriteFile()
         {
             if (!WriteNewFile())
             {
                 label4.Text = "Failed!  Fix Reported Errors and Try Again!";
-                fail = true;
+                _conversionFailed = true;
+                return;
             }
-            else
-            {
-                progressBar2.Increment(1);
-                progressBar4.Increment(1);
-                label5.Text = "66% Complete";
-                FtpSend = true;
-            }
+
+            progressBar2.Increment(1);
+            progressBar4.Increment(1);
+            label5.Text = "66% Complete";
+            _shouldFtpSend = true;
         }
 
         private bool ReadSourceFile()
         {
-            foreach (string str2 in File.ReadAllLines(settings_info.inputFile))
+            foreach (var line in File.ReadAllLines(SettingsService.InputFile))
             {
-                inventory inventory = new inventory();
+                var inventory = new Inventory();
 
+                if (line == null)
+                    continue;
 
-                int index = str2.IndexOf(",");
-                string str = str2.Substring(index + 1);
+                var index = line.IndexOf(",");
+                var item = line.Substring(index + 1);
                 
                 // First Element in file (Item #)
-                index = str.IndexOf(",");
-                inventory.ItemNumber = str.Remove(index);
+                index = item.IndexOf(",");
+                inventory.ItemNumber = item.Remove(index);
                 inventory.ItemNumber = DataStrip(inventory.ItemNumber);
                 inventory.ItemNumber = StripItem(inventory.ItemNumber);
-                str = str.Substring(index + 1);
+                item = item.Substring(index + 1);
                 
                 // Second Element in file (Qty on hand)
-                index = str.IndexOf(",");
-                inventory.QtyOnHand = str.Remove(index);
+                index = item.IndexOf(",");
+                inventory.QtyOnHand = item.Remove(index);
                 inventory.QtyOnHand = DataStrip(inventory.QtyOnHand);
-                str = str.Substring(index + 1);
+                item = item.Substring(index + 1);
                 
                 // Third Element in file (Qty on order)
-                index = str.IndexOf(",");
-                inventory.QtyOnOrder = str.Remove(index);
+                index = item.IndexOf(",");
+                inventory.QtyOnOrder = item.Remove(index);
                 inventory.QtyOnOrder = DataStrip(inventory.QtyOnOrder);
                 
                 // Get Description
-                inventory.Description = str.Substring(index + 1);
+                inventory.Description = item.Substring(index + 1);
                 inventory.Description = DataStrip(inventory.Description);
-                inventoryList.AddLast(inventory);
+                _inventoryList.AddLast(inventory);
 
                 // The following items are now blank by default                
                 inventory.QtyBackOrdered = "";
@@ -233,52 +260,30 @@ namespace CSN_File_Converter
             label5.Text = "0%";
         }
 
-        private string StripItem(string item)
+        private static string StripItem(string item)
         {
-            int index = item.IndexOf(":");
-            if (index > 0)
-            {
-                return item.Substring(index + 1);
-            }
-            return item;
-        }
+            var index = item.IndexOf(":");
 
-        private void timer1_Tick(object sender, EventArgs e)
-        {
-            if (WriteFile)
-            {              
-                WriteFile = false;
-                ProcessWriteFile();
-            }
-            else if (FtpSend)
-            {
-                FtpSend = false;
-                ProcessFtpSend();
-            }
-            else if (!ReadFile)
-            {
-                timer1.Stop();
-                button1.Enabled = true;
-            }
+            return index > 0 ? item.Substring(index + 1) : item;
         }
 
         private bool WriteNewFile()
         {
-            string[] contents = new string[inventoryList.Count];
-            int index = 0;
-            foreach (inventory inventory in inventoryList)
+            var contents = new string[_inventoryList.Count];
+            var index = 0;
+            foreach (var inventoryItem in _inventoryList)
             {
-                contents[index] = BuildLine(inventory);
+                contents[index] = BuildLine(inventoryItem);
                 index++;
             }
             try
             {
-                File.WriteAllLines(settings_info.outputFile, contents);
+                File.WriteAllLines(SettingsService.OutputFile, contents);
             }
             catch (Exception exception)
             {
                 MessageBox.Show(exception.Message);
-                inventoryList.Clear();
+                _inventoryList.Clear();
                 return false;
             }
             return true;

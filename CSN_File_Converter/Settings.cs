@@ -6,6 +6,7 @@ using System.Drawing;
 using System.Linq;
 using System.Text;
 using System.Windows.Forms;
+using CSN_File_Converter.Service;
 
 namespace CSN_File_Converter
 {
@@ -14,15 +15,15 @@ namespace CSN_File_Converter
         public Settings()
         {
             InitializeComponent();
-            this.textBox6.Text = settings_info.ftpPass;
-            this.textBox5.Text = settings_info.ftpUser;
-            this.textBox4.Text = settings_info.ftpHost;
-            this.textBox3.Text = settings_info.outputFile;
-            this.textBox2.Text = settings_info.SupplierID;
-            this.textBox1.Text = settings_info.inputFile;
+            this.textBox6.Text = SettingsService.FtpPass;
+            this.textBox5.Text = SettingsService.FtpUser;
+            this.textBox4.Text = SettingsService.FtpHost;
+            this.textBox3.Text = SettingsService.OutputFile;
+            this.textBox2.Text = SettingsService.SupplierId;
+            this.textBox1.Text = SettingsService.InputFile;
         }
 
-        private void button1_Click(object sender, EventArgs e)
+        private void chooseFileButton_Click(object sender, EventArgs e)
         {
             OpenFileDialog dialog = new OpenFileDialog();
             if (dialog.ShowDialog() == DialogResult.OK)
@@ -31,19 +32,19 @@ namespace CSN_File_Converter
             }
         }
 
-        private void button3_Click(object sender, EventArgs e)
+        private void saveButton_Click(object sender, EventArgs e)
         {
-            settings_info.inputFile = this.textBox1.Text;
-            settings_info.ftpPass = this.textBox6.Text;
-            settings_info.ftpUser = this.textBox5.Text;
-            settings_info.ftpHost = this.textBox4.Text;
-            settings_info.outputFile = this.textBox3.Text;
-            settings_info.SupplierID = this.textBox2.Text;
-            settings_info.SaveSettings();
+            SettingsService.InputFile = this.textBox1.Text;
+            SettingsService.FtpPass = this.textBox6.Text;
+            SettingsService.FtpUser = this.textBox5.Text;
+            SettingsService.FtpHost = this.textBox4.Text;
+            SettingsService.OutputFile = this.textBox3.Text;
+            SettingsService.SupplierId = this.textBox2.Text;
+            SettingsService.SaveSettings();
             base.Close();
         }
 
-        private void button2_Click(object sender, EventArgs e)
+        private void closeButton_Click(object sender, EventArgs e)
         {
             this.Close();
         }
