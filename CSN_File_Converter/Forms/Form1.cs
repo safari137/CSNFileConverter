@@ -1,11 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Windows.Forms;
 using System.IO;
+using System.Windows.Forms;
 using CSN_File_Converter.Model;
 using CSN_File_Converter.Service;
 
-namespace CSN_File_Converter
+namespace CSN_File_Converter.Forms
 {
     public partial class Form1 : Form
     {

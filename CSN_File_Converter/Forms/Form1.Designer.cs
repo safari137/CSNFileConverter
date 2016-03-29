@@ -1,4 +1,4 @@
-﻿namespace CSN_File_Converter
+﻿namespace CSN_File_Converter.Forms
 {
     partial class Form1
     {
